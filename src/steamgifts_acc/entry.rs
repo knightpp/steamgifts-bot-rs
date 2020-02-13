@@ -1,5 +1,5 @@
-use std::fmt::Display;
 use crate::steamgifts_acc::URL;
+use std::fmt::Display;
 
 #[derive(Debug)]
 pub struct Entry {
@@ -11,13 +11,7 @@ pub struct Entry {
 }
 
 impl Entry {
-    pub fn new(
-        name: String,
-        href: URL,
-        price: u32,
-        copies: u32,
-        entries: u32,
-    ) -> Entry {
+    pub fn new(name: String, href: URL, price: u32, copies: u32, entries: u32) -> Entry {
         Entry {
             name,
             href,
@@ -30,10 +24,10 @@ impl Entry {
     pub fn get_code(&self) -> String {
         self.href.to_string()[36..41].to_string()
     }
-    pub fn get_href(&self) -> &URL{
+    pub fn get_href(&self) -> &URL {
         &self.href
     }
-    pub fn get_price(&self) -> u32{
+    pub fn get_price(&self) -> u32 {
         self.price
     }
 }

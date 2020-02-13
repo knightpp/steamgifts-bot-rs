@@ -6,40 +6,42 @@ pub mod steamgifts_acc {
     use entry::Entry;
     use scraper::html::Html;
     use scraper::Selector;
-    //use serde::{Deserialize, Serialize};
-    //use serde_json::Result;
     use std::error::Error;
 
     #[derive(Debug)]
-    pub enum URL {
-        Main,
-        Href(String),
-        Post,
-        Custom(String),
+    pub struct URL {
+        url_string: String,
     }
+
     impl URL {
-        // pub fn as_str(&self) -> &str{
-        //     match self {
-        //         URL::Main => "https://www.steamgifts.com",
-        //         URL::Href(x) => format!("{}{}", URL::Main.to_string(), x),
-        //         URL::Custom(x) => x.as_str(),
-        //         URL::Post => "https://www.steamgifts.com/ajax.php",
-        //     }
-        // }
-        pub fn to_string(&self) -> String {
-            match self {
-                URL::Main => "https://www.steamgifts.com/".to_string(),
-                URL::Href(x) => format!("{}{}", "https://www.steamgifts.com", x),
-                URL::Custom(x) => x.clone(),
-                URL::Post => "https://www.steamgifts.com/ajax.php".to_string(),
+        fn new(typ: URLType) -> URL {
+            URL {
+                url_string: match typ {
+                    URLType::Main => "https://www.steamgifts.com/".to_string(),
+                    URLType::Href(x) => format!("{}{}", "https://www.steamgifts.com", x),
+                    URLType::Post => "https://www.steamgifts.com/ajax.php".to_string(),
+                },
             }
         }
     }
+
+    #[derive(Debug)]
+    pub enum URLType {
+        Main,
+        Href(String),
+        Post,
+    }
+    impl URL {
+        pub fn as_str(&self) -> &str {
+            self.url_string.as_str()
+        }
+        pub fn to_string(&self) -> String {
+            self.url_string.clone()
+        }
+    }
     pub fn new(cookie: String) -> Result<SteamgiftsAcc, Box<dyn Error>> {
-        let xsrf = "".to_string(); //get_xsrf(ureq::get(URL::default().to_string().as_str()).call());
-        let mut acc = SteamgiftsAcc { cookie, xsrf };
-        // TODO: Error handling
-        acc.xsrf = acc.get_xsrf()?;
+        let xsrf = SteamgiftsAcc::get_xsrf(cookie.as_str())?;
+        let acc = SteamgiftsAcc { cookie, xsrf };
         Ok(acc)
     }
     pub struct SteamgiftsAcc {
@@ -50,12 +52,11 @@ pub mod steamgifts_acc {
     impl SteamgiftsAcc {
         /// Panics:
         /// * POST response != 200
-        /// *  
-        ///
+        /// * JSON response don't contains 'error' nor 'success' field
+        /// * Failed to parse HTML
+        /// * Tried parse number from string with no digits
         pub fn enter_giveaway(&self, ga: &Entry) -> Result<u32, Box<dyn Error>> {
-            //{"msg": String("Previously Won"), "points": String("397"), "type": String("error")}
-            //{"type":"success","entry_count":"1,371","points":"138"}
-            let response = self.post(ga);
+            let response = SteamgiftsAcc::post(self.cookie.as_str(), self.xsrf.as_str(), ga);
             if response.status() != 200 {
                 panic!(format!(
                     "POST response code != 200, got {}.\nDebug: {:?}",
@@ -92,7 +93,9 @@ pub mod steamgifts_acc {
             Ok(points.parse::<u32>().unwrap())
         }
         pub fn get_points(&self) -> u32 {
-            let html = self.get(URL::Main).into_string().unwrap();
+            let html = SteamgiftsAcc::get(self.cookie.as_str(), URL::new(URLType::Main))
+                .into_string()
+                .unwrap();
             // TODO: Error handling
             let doc = scraper::html::Html::parse_document(html.as_str());
             let points_balance_selector = Selector::parse("span.nav__points").unwrap();
@@ -104,7 +107,8 @@ pub mod steamgifts_acc {
             points.as_str().extract_number()
         }
         pub fn parse_vector(&self) -> Result<Vec<Entry>, Box<dyn Error>> {
-            let html = self.get(URL::Main).into_string()?;
+            let html =
+                SteamgiftsAcc::get(self.cookie.as_str(), URL::new(URLType::Main)).into_string()?;
             // TODO: Error handling
             let doc: Html = Html::parse_document(html.as_str());
             let giveaway_selector = Selector::parse(
@@ -120,7 +124,13 @@ pub mod steamgifts_acc {
                     let copies = SteamgiftsAcc::select_copies(&el);
                     let entries = SteamgiftsAcc::select_entries(&el);
                     let href = SteamgiftsAcc::select_href(&el);
-                    Some(Entry::new(name, URL::Href(href), points, copies, entries))
+                    Some(Entry::new(
+                        name,
+                        URL::new(URLType::Href(href)),
+                        points,
+                        copies,
+                        entries,
+                    ))
                 })
                 .collect();
             Ok(giveaways)
@@ -185,14 +195,14 @@ pub mod steamgifts_acc {
                 1
             }
         }
-        fn get_xsrf(&self) -> Result<String, Box<dyn std::error::Error>> {
-            let doc = self.get(URL::Main).into_string()?;
+        fn get_xsrf(cookie: &str) -> Result<String, Box<dyn std::error::Error>> {
+            let doc = SteamgiftsAcc::get(cookie, URL::new(URLType::Main)).into_string()?;
             let doc: scraper::html::Html = scraper::html::Html::parse_document(doc.as_str());
             let selector = Selector::parse("input[name=\"xsrf_token\"]").unwrap();
             let error_msg = || {
                 simple_error::SimpleError::new(format!(
                     "cannot login, is '{}' cookie right?",
-                    self.cookie
+                    cookie
                 ))
             };
             let out = doc
@@ -206,7 +216,7 @@ pub mod steamgifts_acc {
             Ok(out)
         }
         // TODO save state of ureq::Request, too many construct for a simple get
-        fn get(&self, url: URL) -> ureq::Response {
+        fn get(cookie: &str, url: URL) -> ureq::Response {
             let url = url.to_string();
             let resp = ureq::get(url.as_str())
                 .timeout_connect(30_000)
@@ -215,7 +225,7 @@ pub mod steamgifts_acc {
                     "text/html, application/xhtml+xml, application/xml",
                 )
                 //.set("Connection", "close")
-                .set("Cookie", format!("PHPSESSID={}", &self.cookie).as_str())
+                .set("Cookie", format!("PHPSESSID={}", cookie).as_str())
                 // .set("DNT", "1")
                 .set(
                     "User-Agent",
@@ -228,15 +238,15 @@ pub mod steamgifts_acc {
                 .call();
             resp
         }
-        fn post(&self, entry: &Entry) -> ureq::Response {
-            let cookie = format!("PHPSESSID={}", &self.cookie);
+        fn post(cookie: &str, xsrf: &str, entry: &Entry) -> ureq::Response {
+            let cookie = format!("PHPSESSID={}", cookie);
             let referer = entry.get_href().to_string();
             let post_data = format!(
                 "xsrf_token={}&do=entry_insert&code={}",
-                self.xsrf,
+                xsrf,
                 entry.get_code()
             );
-            let resp = ureq::post(URL::Post.to_string().as_str())
+            let resp = ureq::post(URL::new(URLType::Post).as_str())
                 .set("Host", "www.steamgifts.com")
                 .set(
                     "User-Agent",

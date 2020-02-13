@@ -70,19 +70,22 @@ fn run(matches: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
 
     if giveaways.len() == 0 {
         return Err(Box::new(simple_error::SimpleError::new(
-            "Didn't received giveaways",
+            "None giveaways was parsed.",
         )));
     }
 
     // expensive first
     giveaways.sort_by(|a, b| a.get_price().cmp(&b.get_price()).reverse());
 
-    // TODO: cache funds, check if we can afford entering GA
+    let mut funds = acc.get_points();
+    println!("Points available: {}", style(funds).bold().yellow());
+    std::thread::sleep(std::time::Duration::from_secs(5));
     for ga in giveaways.iter() {
-        let funds = acc.enter_giveaway(ga)?;
-        println!("{}", ga);
-        if funds < 50 {
-            break;
+        if funds > ga.get_price() {
+            println!("{}", ga);
+            funds = acc.enter_giveaway(ga)?;
+        } else {
+            continue;
         }
         std::thread::sleep(std::time::Duration::from_secs(5));
     }
