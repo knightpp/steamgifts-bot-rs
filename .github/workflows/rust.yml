@@ -1,4 +1,4 @@
-name: Rust
+name: Rust publish
 
 on: [push]
 
@@ -9,7 +9,17 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+    - name: Build release
+      run: cargo build --release --verbose
+    - name: Upload artifact
+      uses: actions/upload-artifact@v1.0.0
+      with:
+        name: steamgifts-bot
+        path: ./target/release/steamgiftsbot.exe
+    - name: Upload release
+      uses: yakuhzi/action-release@v1
+      with:
+          file: ./target/release/steamgiftsbot.exe
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  
+          
