@@ -1,6 +1,6 @@
 [package]
 name = "steamgiftsbot"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Daniel <knightpp@pm.me>"]
 edition = "2018"
 
@@ -16,4 +16,4 @@ clap = "2.33"
 [profile.release]
 lto = true
 codegen-units = 1
-opt-level = "z"
+opt-level = "s"

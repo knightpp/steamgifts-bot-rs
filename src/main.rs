@@ -9,9 +9,10 @@ extern crate clap;
 
 // TODO: http://a8m.github.io/pb/doc/pbr/index.html
 fn main() -> Result<(), Box<dyn Error>> {
+    const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     println!("{}", style("Started.").green());
     let matches = App::new("steamgifts.com bot")
-        .version("0.1.0")
+        .version(VERSION)
         .author("knightpp")
         .about("steamgifts bot rewritten in Rust!")
         .arg(
@@ -28,10 +29,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .takes_value(true),
         )
         .get_matches();
-    match run(&matches) {
-        Ok(()) => println!("{}", style("Done.").green()),
-        Err(x) => println!("{}", style(format!("Error: {}", x)).red()),
-    }
+    run(matches)?;
+    println!("{}", style("Done.").green());
 
     if cfg!(target_os = "windows") {
         use std::process::Command;
@@ -40,31 +39,46 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run(matches: &clap::ArgMatches) -> Result<(), Box<dyn Error>> {
-    let config = matches.value_of("cookie file").unwrap_or("cookie.txt");
-    let config_exists = Path::new(config).exists();
-    let cookie = matches.value_of("cookie").or(None);
-    // if no cookie given, try find it in file
-    let cookie = if cookie == None {
-        if config_exists {
-            let file_content = fs::read_to_string(config)?;
-            let first_line = file_content.lines().nth(0).unwrap().to_owned();
-            println!("read {} bytes from file '{}'", first_line.len(), config);
-            first_line
-        } else {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("cookie file '{}' not found", config),
-            )));
-        }
-    } else {
-        let cookie = cookie.unwrap();
-        if !config_exists {
-            fs::write(config, cookie)?;
-        }
-        cookie.to_owned()
-    };
+struct Config<'a> {
+    matches: clap::ArgMatches<'a>,
+}
+impl Config<'_> {
+    pub fn new(matches: clap::ArgMatches) -> Config {
+        Config { matches }
+    }
+    pub fn get_cookie(&self) -> Result<String, Box<dyn Error>> {
+        let cookie_file = self.matches.value_of("cookie file").unwrap_or("cookie.txt");
+        let cookie_arg = self.matches.value_of("cookie").or(None);
 
+        if let Some(cookie) = cookie_arg {
+            fs::write(cookie_file, cookie)?;
+            return Ok(cookie.to_string());
+        }
+
+        return if Path::new(cookie_file).exists() {
+            let file_content = fs::read_to_string(cookie_file)?;
+            let first_line = file_content
+                .lines()
+                .nth(0)
+                .ok_or(format!("failed to read from '{}'", cookie_file))?
+                .to_string();
+            println!(
+                "read {} bytes from file '{}'",
+                first_line.len(),
+                cookie_file
+            );
+            Ok(first_line)
+        } else {
+            Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("cookie file '{}' not found", cookie_file),
+            )))
+        };
+    }
+}
+
+fn run(matches: clap::ArgMatches) -> Result<(), Box<dyn Error>> {
+    let cookie = Config::new(matches).get_cookie()?;
     let acc = steamgifts_acc::new(cookie)?;
     let mut giveaways = acc.parse_vector()?;
 

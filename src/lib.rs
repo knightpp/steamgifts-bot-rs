@@ -56,6 +56,7 @@ pub mod steamgifts_acc {
         /// * Failed to parse HTML
         /// * Tried parse number from string with no digits
         pub fn enter_giveaway(&self, ga: &Entry) -> Result<u32, Box<dyn Error>> {
+            // TODO: refactor
             let response = SteamgiftsAcc::post(self.cookie.as_str(), self.xsrf.as_str(), ga);
             if response.status() != 200 {
                 panic!(format!(
@@ -181,7 +182,7 @@ pub mod steamgifts_acc {
                 v[0].inner_html().as_str().extract_number()
             }
         }
-        fn select_copies<'a>(el: &'a scraper::ElementRef) -> u32 {
+        fn select_copies(el: &scraper::ElementRef) -> u32 {
             let points_copies_selector =
                 Selector::parse("h2.giveaway__heading span.giveaway__heading__thin").unwrap();
             let arr = el.select(&points_copies_selector);
@@ -276,12 +277,10 @@ pub mod steamgifts_acc {
     }
     impl MyTrait for &str {
         fn extract_number(&self) -> u32 {
-            let mut out = String::new();
-            for c in self.chars() {
-                if c.is_numeric() {
-                    out.push(c);
-                }
-            }
+            let out = self
+                .chars()
+                .filter(|ch| ch.is_numeric())
+                .collect::<String>();
             if out.is_empty() {
                 panic!("trying to get number from string which doesn't contain numbers")
             }
