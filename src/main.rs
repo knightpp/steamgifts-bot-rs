@@ -1,8 +1,6 @@
 use clap::{App, Arg};
 use console::style;
-use std::error::Error;
-use std::fs;
-use std::path::Path;
+use std::{error::Error, fs, path::Path, time::Duration};
 use steamgiftsbot::steamgifts_acc;
 
 extern crate clap;
@@ -10,7 +8,7 @@ extern crate clap;
 // TODO: http://a8m.github.io/pb/doc/pbr/index.html
 fn main() -> Result<(), Box<dyn Error>> {
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-    println!("{}", style("Started.").green());
+
     let matches = App::new("steamgifts.com bot")
         .version(VERSION)
         .author("knightpp")
@@ -29,6 +27,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .takes_value(true),
         )
         .get_matches();
+
+    println!("{}", style("Started.").green());
     run(matches)?;
     println!("{}", style("Done.").green());
 
@@ -93,7 +93,9 @@ fn run(matches: clap::ArgMatches) -> Result<(), Box<dyn Error>> {
 
     let mut funds = acc.get_points();
     println!("Points available: {}", style(funds).bold().yellow());
-    std::thread::sleep(std::time::Duration::from_secs(5));
+    //std::thread::sleep(std::time::Duration::from_secs(5));
+    pretty_sleep(std::time::Duration::from_millis(5000));
+
     for ga in giveaways.iter() {
         if funds > ga.get_price() {
             println!("{}", ga);
@@ -101,7 +103,29 @@ fn run(matches: clap::ArgMatches) -> Result<(), Box<dyn Error>> {
         } else {
             continue;
         }
-        std::thread::sleep(std::time::Duration::from_secs(5));
+        pretty_sleep(std::time::Duration::from_millis(5000));
+        //std::thread::sleep(std::time::Duration::from_secs(5));
     }
     Ok(())
+}
+
+fn pretty_sleep(dur: Duration) {
+    const PB_WIDTH: usize = 70;
+    const REFRESH_EVERY_MS: u64 = 100;
+    let ms = dur.as_millis();
+    debug_assert!(ms < std::u32::MAX.into());
+    let ms = ms as u64;
+    debug_assert!(ms > REFRESH_EVERY_MS);
+    let mut pb = pbr::ProgressBar::new(ms);
+    pb.show_speed = false;
+    pb.show_percent = false;
+
+    pb.set_width(Some(PB_WIDTH));
+    for _ in 0..(ms / REFRESH_EVERY_MS) {
+        //pb.inc();
+        pb.add(REFRESH_EVERY_MS);
+        std::thread::sleep(Duration::from_millis(REFRESH_EVERY_MS));
+    }
+    pb.finish_print(""); // clear by printing whitespaces
+    print!("\r"); // return to start of the line
 }

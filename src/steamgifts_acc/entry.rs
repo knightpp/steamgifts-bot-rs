@@ -37,7 +37,7 @@ impl Display for Entry {
         // Use `self.number` to refer to each positional data point.
         write!(
             f,
-            "[{:>40}] - Price: {:3}\tChance: {:.3}%",
+            "[{:>40}] - Price: {:3} Chance: {:.3}%",
             self.name,
             self.price,
             self.copies as f64 / self.entries as f64 * 100f64
