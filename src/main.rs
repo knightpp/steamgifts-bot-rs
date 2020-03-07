@@ -3,11 +3,11 @@ use console::style;
 use std::{error::Error, fs, path::Path, time::Duration};
 use steamgiftsbot::steamgifts_acc;
 
+
 extern crate clap;
 
-// TODO: http://a8m.github.io/pb/doc/pbr/index.html
 fn main() -> Result<(), Box<dyn Error>> {
-    const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
 
     let matches = App::new("steamgifts.com bot")
         .version(VERSION)
@@ -27,16 +27,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .takes_value(true),
         )
         .get_matches();
-
     println!("{}", style("Started.").green());
-    run(matches)?;
-    println!("{}", style("Done.").green());
-
-    if cfg!(target_os = "windows") {
-        use std::process::Command;
-        let _ = Command::new("cmd.exe").arg("/c").arg("pause").status();
+    match run(matches){
+        Ok(()) => {
+            println!("{}", style("Done.").green());
+            Ok(())
+        },
+        Err(e) => {
+            eprintln!("{}", e);
+            println!("{}", style("Done.").red());
+            if cfg!(target_os = "windows") {
+                use std::process::Command;
+                let _ = Command::new("cmd.exe").arg("/c").arg("pause").status();
+            }
+            Ok(())
+        },
     }
-    Ok(())
 }
 
 struct Config<'a> {
@@ -55,7 +61,7 @@ impl Config<'_> {
             return Ok(cookie.to_string());
         }
 
-        return if Path::new(cookie_file).exists() {
+        if Path::new(cookie_file).exists() {
             let file_content = fs::read_to_string(cookie_file)?;
             let first_line = file_content
                 .lines()
@@ -73,7 +79,7 @@ impl Config<'_> {
                 std::io::ErrorKind::NotFound,
                 format!("cookie file '{}' not found", cookie_file),
             )))
-        };
+        }
     }
 }
 
@@ -82,7 +88,7 @@ fn run(matches: clap::ArgMatches) -> Result<(), Box<dyn Error>> {
     let acc = steamgifts_acc::new(cookie)?;
     let mut giveaways = acc.parse_vector()?;
 
-    if giveaways.len() == 0 {
+    if giveaways.is_empty() {
         return Err(Box::new(simple_error::SimpleError::new(
             "None giveaways was parsed.",
         )));
@@ -110,10 +116,11 @@ fn run(matches: clap::ArgMatches) -> Result<(), Box<dyn Error>> {
 }
 
 fn pretty_sleep(dur: Duration) {
+    use std::convert::TryInto;
     const PB_WIDTH: usize = 70;
     const REFRESH_EVERY_MS: u64 = 100;
     let ms = dur.as_millis();
-    debug_assert!(ms < std::u32::MAX.into());
+    debug_assert_eq!( ms.try_into(), Ok(ms as u64));
     let ms = ms as u64;
     debug_assert!(ms > REFRESH_EVERY_MS);
     let mut pb = pbr::ProgressBar::new(ms);

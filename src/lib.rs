@@ -142,19 +142,16 @@ pub mod steamgifts_acc {
     impl SteamgiftsAcc {
         fn select_name(el: &scraper::ElementRef) -> String {
             let name_selector = Selector::parse("a.giveaway__heading__name").unwrap();
-            let name = el.select(&name_selector).nth(0).unwrap().inner_html();
-            name
+            el.select(&name_selector).nth(0).unwrap().inner_html()
         }
         fn select_entries(el: &scraper::ElementRef) -> u32 {
             let entries_selector = Selector::parse("div.giveaway__links a[href] span").unwrap();
-            let entries = el
-                .select(&entries_selector)
+            el.select(&entries_selector)
                 .nth(0)
                 .unwrap()
                 .inner_html()
                 .as_str()
-                .extract_number();
-            entries
+                .extract_number()
         }
         fn select_href(el: &scraper::ElementRef) -> String {
             let href_selector =
