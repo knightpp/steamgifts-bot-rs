@@ -3,7 +3,6 @@ use console::style;
 use std::{error::Error, fs, path::Path, time::Duration};
 use steamgiftsbot::steamgifts_acc;
 
-
 extern crate clap;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -28,21 +27,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         )
         .get_matches();
     println!("{}", style("Started.").green());
-    match run(matches){
+    match run(matches) {
         Ok(()) => {
             println!("{}", style("Done.").green());
-            Ok(())
-        },
+        }
         Err(e) => {
             eprintln!("{}", e);
             println!("{}", style("Done.").red());
-            if cfg!(target_os = "windows") {
-                use std::process::Command;
-                let _ = Command::new("cmd.exe").arg("/c").arg("pause").status();
-            }
-            Ok(())
-        },
+        }
     }
+
+    if cfg!(target_os = "windows") {
+        use std::process::Command;
+        let _ = Command::new("cmd.exe").arg("/c").arg("pause").status();
+    }
+    Ok(())
 }
 
 struct Config<'a> {
@@ -120,7 +119,7 @@ fn pretty_sleep(dur: Duration) {
     const PB_WIDTH: usize = 70;
     const REFRESH_EVERY_MS: u64 = 100;
     let ms = dur.as_millis();
-    debug_assert_eq!( ms.try_into(), Ok(ms as u64));
+    debug_assert_eq!(ms.try_into(), Ok(ms as u64));
     let ms = ms as u64;
     debug_assert!(ms > REFRESH_EVERY_MS);
     let mut pb = pbr::ProgressBar::new(ms);
