@@ -1,6 +1,6 @@
 [package]
 name = "steamgiftsbot"
-version = "0.2.3"
+version = "0.3.0"
 authors = ["Daniel <knightpp@pm.me>"]
 edition = "2018"
 
@@ -9,12 +9,13 @@ edition = "2018"
 [dependencies]
 ureq = { version = "1.3", features = ["json"] }
 scraper = "0.12"
-simple-error = "0.2"
 console = "0.12"
-clap = "2.33"
 pbr = "1.0"
+argh = "0.1"
+anyhow = "1.0"    # for binary
+thiserror = "1.0" # for lib
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
-opt-level = "s"
+opt-level = 3

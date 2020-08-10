@@ -1,95 +1,76 @@
-use clap::{App, Arg};
+use anyhow::{Context, Result};
+use argh::FromArgs;
 use console::style;
-use std::{error::Error, fs, path::Path, time::Duration};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use steamgiftsbot::steamgifts_acc;
 
+#[derive(FromArgs)]
+/** http://steamgifts.com bot written in Rust!
+When no arguments supplied then a cookie will be read from `cookie.txt` */
+struct Opt {
+    /// set a path to a cookie file
+    #[argh(option, short = 'f')]
+    cookie_file: Option<PathBuf>,
 
-fn main() -> Result<(), Box<dyn Error>> {
-    const VERSION: &str = env!("CARGO_PKG_VERSION");
+    /// cookie value, string after 'PHPSESSID=', automatically saves to file
+    #[argh(option, short = 'c')]
+    cookie: Option<String>,
+}
 
-    let matches = App::new("steamgifts.com bot")
-        .version(VERSION)
-        .author("knightpp")
-        .about("steamgifts bot rewritten in Rust!")
-        .arg(
-            Arg::with_name("cookie file")
-                .short("c")
-                .long("config")
-                .help("Sets a path to a cookie file")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("cookie")
-                .long("cookie")
-                .help("Cookie value, string after 'PHPSESSID='. Automatically saves to file.")
-                .takes_value(true),
-        )
-        .get_matches();
-    println!("{}", style("Started.").green());
-    match run(matches) {
-        Ok(()) => {
-            println!("{}", style("Done.").green());
-        }
-        Err(e) => {
-            eprintln!("{}", e);
-            println!("{}", style("Done.").red());
-        }
-    }
-
-    if cfg!(target_os = "windows") {
-        use std::process::Command;
-        let _ = Command::new("cmd.exe").arg("/c").arg("pause").status();
-    }
+fn main() -> Result<()> {
+    let matches: Opt = argh::from_env();
+    run(matches)?;
     Ok(())
 }
 
-struct Config<'a> {
-    matches: clap::ArgMatches<'a>,
-}
-impl Config<'_> {
-    pub fn new(matches: clap::ArgMatches) -> Config {
-        Config { matches }
-    }
-    pub fn get_cookie(&self) -> Result<String, Box<dyn Error>> {
-        let cookie_file = self.matches.value_of("cookie file").unwrap_or("cookie.txt");
-        let cookie_arg = self.matches.value_of("cookie").or(None);
+impl Opt {
+    pub fn get_cookie(&self) -> Result<String> {
+        let cookie_file = self
+            .cookie_file
+            .as_ref()
+            .map(|f| f.as_path())
+            .unwrap_or(Path::new("cookie.txt"));
+        let cookie_arg = self.cookie.as_ref();
 
         if let Some(cookie) = cookie_arg {
             fs::write(cookie_file, cookie)?;
             return Ok(cookie.to_string());
         }
 
-        if Path::new(cookie_file).exists() {
+        if cookie_file.exists() {
             let file_content = fs::read_to_string(cookie_file)?;
             let first_line = file_content
                 .lines()
                 .nth(0)
-                .ok_or(format!("failed to read from '{}'", cookie_file))?
+                .context(format!("failed to read from '{}'", cookie_file.display()))?
                 .to_string();
             println!(
                 "read {} bytes from file '{}'",
                 first_line.len(),
-                cookie_file
+                cookie_file.display()
             );
             Ok(first_line)
         } else {
-            Err(Box::new(std::io::Error::new(
+            Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("cookie file '{}' not found", cookie_file),
-            )))
+                format!("file '{}' not found", cookie_file.display()),
+            ))
+            .context("cookie file not found")
         }
     }
 }
 
-fn run(matches: clap::ArgMatches) -> Result<(), Box<dyn Error>> {
-    let cookie = Config::new(matches).get_cookie()?;
+fn run(matches: Opt) -> Result<()> {
+    let cookie = matches.get_cookie()?;
     let acc = steamgifts_acc::new(cookie)?;
     let mut giveaways = acc.parse_vector()?;
 
     if giveaways.is_empty() {
-        return Err(Box::new(simple_error::SimpleError::new(
-            "None giveaways was parsed.",
-        )));
+        return Err(anyhow::Error::msg("none giveaways was parsed"));
     }
 
     // expensive first

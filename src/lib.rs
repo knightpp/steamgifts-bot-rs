@@ -1,8 +1,18 @@
-extern crate simple_error;
-extern crate ureq;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum SgbError {
+    #[error("io error")]
+    Io(#[from] std::io::Error),
+    #[error("failed when parsing {0}")]
+    Parse(&'static str),
+    #[error("unknown error")]
+    Unknown,
+}
 
 pub mod steamgifts_acc {
     pub mod entry;
+    use crate::SgbError;
     use entry::Entry;
     use scraper::html::Html;
     use scraper::Selector;
@@ -39,7 +49,7 @@ pub mod steamgifts_acc {
             self.url_string.clone()
         }
     }
-    pub fn new(cookie: String) -> Result<SteamgiftsAcc, Box<dyn Error>> {
+    pub fn new(cookie: String) -> Result<SteamgiftsAcc, SgbError> {
         let xsrf = SteamgiftsAcc::get_xsrf(cookie.as_str())?;
         let acc = SteamgiftsAcc { cookie, xsrf };
         Ok(acc)
@@ -55,7 +65,7 @@ pub mod steamgifts_acc {
         /// * JSON response don't contains 'error' nor 'success' field
         /// * Failed to parse HTML
         /// * Tried parse number from string with no digits
-        pub fn enter_giveaway(&self, ga: &Entry) -> Result<u32, Box<dyn Error>> {
+        pub fn enter_giveaway(&self, ga: &Entry) -> Result<u32, SgbError> {
             // TODO: refactor
             let response = SteamgiftsAcc::post(self.cookie.as_str(), self.xsrf.as_str(), ga);
             if response.status() != 200 {
@@ -107,7 +117,7 @@ pub mod steamgifts_acc {
                 .inner_html();
             points.as_str().extract_number()
         }
-        pub fn parse_vector(&self) -> Result<Vec<Entry>, Box<dyn Error>> {
+        pub fn parse_vector(&self) -> Result<Vec<Entry>, SgbError> {
             let html =
                 SteamgiftsAcc::get(self.cookie.as_str(), URL::new(URLType::Main)).into_string()?;
             // TODO: Error handling
@@ -193,16 +203,11 @@ pub mod steamgifts_acc {
                 1
             }
         }
-        fn get_xsrf(cookie: &str) -> Result<String, Box<dyn std::error::Error>> {
+        fn get_xsrf(cookie: &str) -> Result<String, SgbError> {
             let doc = SteamgiftsAcc::get(cookie, URL::new(URLType::Main)).into_string()?;
             let doc: scraper::html::Html = scraper::html::Html::parse_document(doc.as_str());
             let selector = Selector::parse("input[name=\"xsrf_token\"]").unwrap();
-            let error_msg = || {
-                simple_error::SimpleError::new(format!(
-                    "cannot login, is '{}' cookie right?",
-                    cookie
-                ))
-            };
+            let error_msg = || SgbError::Parse("xsrf_token");
             let out = doc
                 .select(&selector)
                 .nth(0)
