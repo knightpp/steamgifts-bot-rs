@@ -50,7 +50,7 @@ pub mod steamgifts_acc {
     }
     // * Public decls
     impl SteamgiftsAcc {
-        /// Panics:
+        /// # Panics:
         /// * POST response != 200
         /// * JSON response don't contains 'error' nor 'success' field
         /// * Failed to parse HTML

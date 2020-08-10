@@ -3,7 +3,6 @@ use console::style;
 use std::{error::Error, fs, path::Path, time::Duration};
 use steamgiftsbot::steamgifts_acc;
 
-extern crate clap;
 
 fn main() -> Result<(), Box<dyn Error>> {
     const VERSION: &str = env!("CARGO_PKG_VERSION");
