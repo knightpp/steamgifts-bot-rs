@@ -1,13 +1,13 @@
 # steamgiftsbot-rust
-
-#### USAGE:
-    steamgiftsbot.exe [OPTIONS]
-
-#### FLAGS:
-
-    -h, --help       Prints help information
-    -V, --version    Prints version information
-
-#### OPTIONS:
-        --cookie <cookie>         Cookie value, string after 'PHPSESSID='. Automatically saves to file.
-    -c, --config <cookie file>    Sets a path to a cookie file
+### Usage: ./steamgiftsbot [-f \<cookie-file\>] [-c \<cookie\>]
+```
+http://steamgifts.com bot written in Rust!
+When no arguments supplied then a cookie will be read from `cookie.txt`
+```
+### Options:
+```
+  -f, --cookie-file set a path to a cookie file
+  -c, --cookie      cookie value, string after 'PHPSESSID=', automatically saves
+                    to file
+  --help            display usage information
+```
