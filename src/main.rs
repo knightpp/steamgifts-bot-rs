@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
 use argh::FromArgs;
 use console::style;
+use oorandom;
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::Duration,
+    thread::sleep,
+    time::{Duration, SystemTime},
 };
 use steamgiftsbot::steamgifts_acc;
 
@@ -19,11 +21,30 @@ struct Opt {
     /// cookie value, string after 'PHPSESSID=', automatically saves to file
     #[argh(option, short = 'c')]
     cookie: Option<String>,
+
+    #[argh(switch, short = 'd')]
+    /// daemonize
+    daemon: bool,
 }
 
 fn main() -> Result<()> {
     let matches: Opt = argh::from_env();
-    run(matches)?;
+    if matches.daemon {
+        let epoch = SystemTime::UNIX_EPOCH;
+        let some_seed = (SystemTime::now().duration_since(epoch)).unwrap().as_secs();
+        let mut rng = oorandom::Rand32::new(some_seed);
+        loop {
+            let secs = rng.rand_range(5..15) as u64;
+            let sl = || sleep(Duration::from_secs(secs));
+            match run(&matches, sl) {
+                Err(x) => eprintln!("Error: {}", style(x).red()),
+                _ => {}
+            }
+            sleep(Duration::from_secs(60 * 60));
+        }
+    } else {
+        run(&matches, || pretty_sleep(Duration::from_secs(5)))?;
+    }
     Ok(())
 }
 
@@ -64,7 +85,7 @@ impl Opt {
     }
 }
 
-fn run(matches: Opt) -> Result<()> {
+fn run<F: Fn()>(matches: &Opt, sleep: F) -> Result<()> {
     let cookie = matches.get_cookie()?;
     let acc = steamgifts_acc::new(cookie)?;
     let mut giveaways = acc.parse_vector()?;
@@ -79,17 +100,22 @@ fn run(matches: Opt) -> Result<()> {
     let mut funds = acc.get_points();
     println!("Points available: {}", style(funds).bold().yellow());
     //std::thread::sleep(std::time::Duration::from_secs(5));
-    pretty_sleep(std::time::Duration::from_millis(5000));
-
+    //pretty_sleep(std::time::Duration::from_millis(5000));
+    sleep();
     for ga in giveaways.iter() {
         if funds > ga.get_price() {
             println!("{}", ga);
-            funds = acc.enter_giveaway(ga)?;
+            funds = if let Ok(x) = acc.enter_giveaway(ga) {
+                x
+            } else {
+                continue;
+            };
         } else {
             continue;
         }
-        pretty_sleep(std::time::Duration::from_millis(5000));
+        //pretty_sleep(std::time::Duration::from_millis(5000));
         //std::thread::sleep(std::time::Duration::from_secs(5));
+        sleep();
     }
     Ok(())
 }
@@ -110,7 +136,7 @@ fn pretty_sleep(dur: Duration) {
     for _ in 0..(ms / REFRESH_EVERY_MS) {
         //pb.inc();
         pb.add(REFRESH_EVERY_MS);
-        std::thread::sleep(Duration::from_millis(REFRESH_EVERY_MS));
+        sleep(Duration::from_millis(REFRESH_EVERY_MS));
     }
     pb.finish_print(""); // clear by printing whitespaces
     print!("\r"); // return to start of the line

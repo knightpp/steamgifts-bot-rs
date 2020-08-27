@@ -2,10 +2,16 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum SgbError {
+    #[error("expected status code 200, got {0}")]
+    StatusCode(u16),
+    #[error("json failed: {0}")]
+    Json(&'static str),
     #[error("io error")]
     Io(#[from] std::io::Error),
-    #[error("failed when parsing {0}")]
-    Parse(&'static str),
+    #[error("failed logging in: {0}")]
+    Login(&'static str),
+    #[error("failed entering GA: {0}")]
+    Enter(String),
     #[error("unknown error")]
     Unknown,
 }
@@ -16,7 +22,6 @@ pub mod steamgifts_acc {
     use entry::Entry;
     use scraper::html::Html;
     use scraper::Selector;
-    use std::error::Error;
 
     #[derive(Debug)]
     pub struct URL {
@@ -61,7 +66,6 @@ pub mod steamgifts_acc {
     // * Public decls
     impl SteamgiftsAcc {
         /// # Panics:
-        /// * POST response != 200
         /// * JSON response don't contains 'error' nor 'success' field
         /// * Failed to parse HTML
         /// * Tried parse number from string with no digits
@@ -69,38 +73,24 @@ pub mod steamgifts_acc {
             // TODO: refactor
             let response = SteamgiftsAcc::post(self.cookie.as_str(), self.xsrf.as_str(), ga);
             if response.status() != 200 {
-                panic!(format!(
-                    "POST response code != 200, got {}.\nDebug: {:?}",
-                    response.status(),
-                    response
-                ));
+                return Err(SgbError::StatusCode(response.status()));
             }
-            let json = response
-                .into_json()
-                .expect("Error when trying parse JSON from response");
+            let json = response.into_json().map_err(|err| SgbError::Io(err))?;
             let msg_type = json
                 .get("type")
-                .expect("Failed to get 'type' field from JSON")
+                .ok_or(SgbError::Json("couldn't find 'type' field"))?
                 .as_str()
                 .unwrap();
-            let msg = match msg_type {
-                "success" => None,
-                "error" => Some(
-                    json.get("msg")
-                        .expect("json cannot find 'msg'")
-                        .as_str()
-                        .unwrap(),
-                ),
-                &_ => panic!("unknow message in JSON response"),
+            match msg_type {
+                "success" => {}
+                "error" => return Err(SgbError::Json("failed to enter GA")),
+                msg @ _ => return Err(SgbError::Enter(format!("got msg = {}", msg))),
             };
             let points = json
                 .get("points")
-                .expect("Failed to get 'points' field from JSON")
+                .ok_or(SgbError::Json("couldn't find 'points' field"))?
                 .as_str()
                 .unwrap();
-            if msg_type == "error" {
-                println!("Error msg: {}", msg.unwrap(),);
-            }
             Ok(points.parse::<u32>().unwrap())
         }
         pub fn get_points(&self) -> u32 {
@@ -207,7 +197,7 @@ pub mod steamgifts_acc {
             let doc = SteamgiftsAcc::get(cookie, URL::new(URLType::Main)).into_string()?;
             let doc: scraper::html::Html = scraper::html::Html::parse_document(doc.as_str());
             let selector = Selector::parse("input[name=\"xsrf_token\"]").unwrap();
-            let error_msg = || SgbError::Parse("xsrf_token");
+            let error_msg = || SgbError::Login("xsrf_token");
             let out = doc
                 .select(&selector)
                 .nth(0)
