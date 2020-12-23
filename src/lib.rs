@@ -1,3 +1,5 @@
+use std::num::ParseIntError;
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -14,15 +16,17 @@ pub enum SgbError {
     Enter(String),
     #[error("unknown error")]
     Unknown,
+    #[error("could not parse integer from string")]
+    ParseError(#[from] ParseIntError),
 }
 
 pub mod steamgifts_acc {
     pub mod entry;
-    use std::borrow::Cow;
     use crate::SgbError;
     use entry::Entry;
     use scraper::html::Html;
     use scraper::Selector;
+    use std::borrow::Cow;
 
     #[derive(Debug)]
     pub struct URL<'c> {
@@ -55,14 +59,6 @@ pub mod steamgifts_acc {
         Href(String),
         Post,
     }
-    impl URL {
-        pub fn as_str(&self) -> &str {
-            self.url_string.as_str()
-        }
-        pub fn to_string(&self) -> String {
-            self.url_string.clone()
-        }
-    }
     pub fn new(cookie: String) -> Result<SteamgiftsAcc, SgbError> {
         let xsrf = SteamgiftsAcc::get_xsrf(cookie.as_str())?;
         let acc = SteamgiftsAcc { cookie, xsrf };
@@ -84,7 +80,7 @@ pub mod steamgifts_acc {
             if response.status() != 200 {
                 return Err(SgbError::StatusCode(response.status()));
             }
-            let json = response.into_json().map_err(|err| SgbError::Io(err))?;
+            let json = response.into_json()?;
             let msg_type = json
                 .get("type")
                 .ok_or(SgbError::Json("couldn't find 'type' field"))?
@@ -93,20 +89,19 @@ pub mod steamgifts_acc {
             match msg_type {
                 "success" => {}
                 "error" => return Err(SgbError::Json("failed to enter GA")),
-                msg @ _ => return Err(SgbError::Enter(format!("got msg = {}", msg))),
+                msg => return Err(SgbError::Enter(format!("got msg = {}", msg))),
             };
             let points = json
                 .get("points")
                 .ok_or(SgbError::Json("couldn't find 'points' field"))?
                 .as_str()
                 .unwrap();
-            Ok(points.parse::<u32>().unwrap())
+            points.extract_number()
         }
-        pub fn get_points(&self) -> u32 {
+        pub fn get_points(&self) -> Result<u32, SgbError> {
             let html = SteamgiftsAcc::get(self.cookie.as_str(), URL::new(URLType::Main))
                 .into_string()
                 .unwrap();
-            // TODO: Error handling
             let doc = scraper::html::Html::parse_document(html.as_str());
             let points_balance_selector = Selector::parse("span.nav__points").unwrap();
             let points = doc
@@ -119,30 +114,23 @@ pub mod steamgifts_acc {
         pub fn parse_vector(&self) -> Result<Vec<Entry>, SgbError> {
             let html =
                 SteamgiftsAcc::get(self.cookie.as_str(), URL::new(URLType::Main)).into_string()?;
-            // TODO: Error handling
             let doc: Html = Html::parse_document(html.as_str());
             let giveaway_selector = Selector::parse(
                 "div.giveaway__row-outer-wrap[data-game-id] div[class=giveaway__row-inner-wrap]",
             )
             .unwrap();
-            //Selector::parse("div.giveaway__summary").unwrap();
-            let giveaways = doc
-                .select(&giveaway_selector)
-                .filter_map(|el| {
-                    let name = SteamgiftsAcc::select_name(&el);
-                    let points = SteamgiftsAcc::select_points(&el);
-                    let copies = SteamgiftsAcc::select_copies(&el);
-                    let entries = SteamgiftsAcc::select_entries(&el);
-                    let href = SteamgiftsAcc::select_href(&el);
-                    Some(Entry::new(
-                        name,
-                        URL::new(URLType::Href(href)),
-                        points,
-                        copies,
-                        entries,
-                    ))
-                })
-                .collect();
+            let mut giveaways = Vec::with_capacity(50);
+            for el in doc.select(&giveaway_selector) {
+                let name = SteamgiftsAcc::select_name(&el);
+                let points = SteamgiftsAcc::select_points(&el)?;
+                let copies = SteamgiftsAcc::select_copies(&el)?;
+                let entries = SteamgiftsAcc::select_entries(&el)?;
+                let href = SteamgiftsAcc::select_href(&el);
+                let entry =
+                    Entry::new(name, URL::new(URLType::Href(href)), points, copies, entries);
+                giveaways.push(entry);
+            }
+
             Ok(giveaways)
         }
     }
@@ -153,14 +141,15 @@ pub mod steamgifts_acc {
             let name_selector = Selector::parse("a.giveaway__heading__name").unwrap();
             el.select(&name_selector).nth(0).unwrap().inner_html()
         }
-        fn select_entries(el: &scraper::ElementRef) -> u32 {
+        fn select_entries(el: &scraper::ElementRef) -> Result<u32, SgbError> {
             let entries_selector = Selector::parse("div.giveaway__links a[href] span").unwrap();
-            el.select(&entries_selector)
+            Ok(el
+                .select(&entries_selector)
                 .nth(0)
                 .unwrap()
                 .inner_html()
                 .as_str()
-                .extract_number()
+                .extract_number()?)
         }
         fn select_href(el: &scraper::ElementRef) -> String {
             let href_selector =
@@ -174,7 +163,7 @@ pub mod steamgifts_acc {
                 .unwrap();
             href.to_string()
         }
-        fn select_points(el: &scraper::ElementRef) -> u32 {
+        fn select_points(el: &scraper::ElementRef) -> Result<u32, SgbError> {
             let points_copies_selector =
                 Selector::parse("h2.giveaway__heading span.giveaway__heading__thin").unwrap();
             let arr = el.select(&points_copies_selector);
@@ -188,7 +177,7 @@ pub mod steamgifts_acc {
                 v[0].inner_html().as_str().extract_number()
             }
         }
-        fn select_copies(el: &scraper::ElementRef) -> u32 {
+        fn select_copies(el: &scraper::ElementRef) -> Result<u32, SgbError> {
             let points_copies_selector =
                 Selector::parse("h2.giveaway__heading span.giveaway__heading__thin").unwrap();
             let arr = el.select(&points_copies_selector);
@@ -199,7 +188,7 @@ pub mod steamgifts_acc {
             if v.len() > 1 {
                 v[0].inner_html().as_str().extract_number()
             } else {
-                1
+                Ok(1)
             }
         }
         fn get_xsrf(cookie: &str) -> Result<String, SgbError> {
@@ -274,19 +263,15 @@ pub mod steamgifts_acc {
     }
     // * End Private decls
     trait MyTrait {
-        fn extract_number(&self) -> u32;
+        fn extract_number(&self) -> Result<u32, SgbError>;
     }
     impl MyTrait for &str {
-        fn extract_number(&self) -> u32 {
+        fn extract_number(&self) -> Result<u32, SgbError> {
             let out = self
                 .chars()
                 .filter(|ch| ch.is_numeric())
                 .collect::<String>();
-            if out.is_empty() {
-                panic!("trying to get number from string which doesn't contain numbers")
-            }
-            out.parse()
-                .expect(format!("Extract failed, got: {}", self).as_str())
+            Ok(out.parse()?)
         }
     }
 
@@ -310,13 +295,13 @@ pub mod steamgifts_acc {
         #[test]
         fn extract_number() {
             let str_num = "QWE123ZXCC456";
-            assert_eq!(str_num.extract_number(), 123456);
+            assert_eq!(str_num.extract_number().unwrap(), 123456);
         }
         #[test]
         #[should_panic]
         fn extract_number_no_numbers() {
             let str_num = "string with no numbers#@!#$%%^&*";
-            str_num.extract_number();
+            assert_eq!(str_num.extract_number().is_err(), true);
         }
         #[test]
         fn select_name() {
@@ -328,7 +313,7 @@ pub mod steamgifts_acc {
         fn select_entries() {
             let fragment = Html::parse_fragment(GIVEAWAY_HTML);
             let entries = super::SteamgiftsAcc::select_entries(&fragment.root_element());
-            assert_eq!(entries, 237u32);
+            assert_eq!(entries.unwrap(), 237u32);
         }
         #[test]
         fn select_href() {
@@ -340,13 +325,13 @@ pub mod steamgifts_acc {
         fn select_points() {
             let fragment = Html::parse_fragment(GIVEAWAY_HTML);
             let points = super::SteamgiftsAcc::select_points(&fragment.root_element());
-            assert_eq!(points, 3u32);
+            assert_eq!(points.unwrap(), 3u32);
         }
         #[test]
         fn select_copies() {
             let fragment = Html::parse_fragment(GIVEAWAY_HTML);
             let copies = super::SteamgiftsAcc::select_copies(&fragment.root_element());
-            assert_eq!(copies, 1u32);
+            assert_eq!(copies.unwrap(), 1u32);
         }
     }
 }

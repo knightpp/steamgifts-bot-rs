@@ -97,7 +97,7 @@ fn run<F: Fn()>(matches: &Opt, sleep: F) -> Result<()> {
     // expensive first
     giveaways.sort_by(|a, b| a.get_price().cmp(&b.get_price()).reverse());
 
-    let mut funds = acc.get_points();
+    let mut funds = acc.get_points()?;
     println!("Points available: {}", style(funds).bold().yellow());
     //std::thread::sleep(std::time::Duration::from_secs(5));
     //pretty_sleep(std::time::Duration::from_millis(5000));
