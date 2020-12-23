@@ -2,15 +2,15 @@ use crate::steamgifts_acc::URL;
 use std::fmt::Display;
 
 #[derive(Debug)]
-pub struct Entry {
+pub struct Entry<'url> {
     name: String,
-    href: URL,
+    href: URL<'url>,
     price: u32,
     copies: u32,
     entries: u32,
 }
 
-impl Entry {
+impl<'url> Entry<'url> {
     pub fn new(name: String, href: URL, price: u32, copies: u32, entries: u32) -> Entry {
         Entry {
             name,
@@ -32,7 +32,7 @@ impl Entry {
     }
 }
 
-impl Display for Entry {
+impl<'url> Display for Entry<'url> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         // Use `self.number` to refer to each positional data point.
         write!(

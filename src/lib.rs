@@ -18,25 +18,34 @@ pub enum SgbError {
 
 pub mod steamgifts_acc {
     pub mod entry;
+    use std::borrow::Cow;
     use crate::SgbError;
     use entry::Entry;
     use scraper::html::Html;
     use scraper::Selector;
 
     #[derive(Debug)]
-    pub struct URL {
-        url_string: String,
+    pub struct URL<'c> {
+        url_string: Cow<'c, str>,
     }
 
-    impl URL {
-        fn new(typ: URLType) -> URL {
+    impl<'c> URL<'c> {
+        fn new(typ: URLType) -> URL<'c> {
             URL {
                 url_string: match typ {
-                    URLType::Main => "https://www.steamgifts.com/".to_string(),
-                    URLType::Href(x) => format!("{}{}", "https://www.steamgifts.com", x),
-                    URLType::Post => "https://www.steamgifts.com/ajax.php".to_string(),
+                    URLType::Main => Cow::Borrowed("https://www.steamgifts.com/"),
+                    URLType::Href(x) => {
+                        Cow::Owned(format!("{}{}", "https://www.steamgifts.com", x))
+                    }
+                    URLType::Post => Cow::Borrowed("https://www.steamgifts.com/ajax.php"),
                 },
             }
+        }
+        pub fn as_str(&self) -> &str {
+            self.url_string.as_ref()
+        }
+        pub fn to_string(&self) -> String {
+            self.url_string.to_string()
         }
     }
 
