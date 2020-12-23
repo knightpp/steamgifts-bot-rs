@@ -1,15 +1,15 @@
 [package]
 name = "steamgiftsbot"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Daniel <knightpp@pm.me>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ureq = { version = "1.4", features = ["json"] }
+ureq = { version = "1.5", features = ["json"] }
 scraper = "0.12"
-console = "0.12"
+console = "0.13"
 pbr = "1.0"
 argh = "0.1"
 anyhow = "1.0"    # for binary
