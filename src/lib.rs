@@ -10,6 +10,8 @@ pub enum SgbError {
     Json(&'static str),
     #[error("io error")]
     Io(#[from] std::io::Error),
+    #[error("check your internet connection: {0}")]
+    Internet(#[from]ureq::Error),
     #[error("failed logging in: {0}")]
     Login(&'static str),
     #[error("failed entering GA: {0}")]
@@ -26,6 +28,7 @@ pub mod steamgifts_acc {
     use entry::Entry;
     use scraper::html::Html;
     use scraper::Selector;
+    use ureq::SerdeValue;
     use std::borrow::Cow;
 
     #[derive(Debug)]
@@ -76,11 +79,11 @@ pub mod steamgifts_acc {
         /// * Tried parse number from string with no digits
         pub fn enter_giveaway(&self, ga: &Entry) -> Result<u32, SgbError> {
             // TODO: refactor
-            let response = SteamgiftsAcc::post(self.cookie.as_str(), self.xsrf.as_str(), ga);
+            let response = SteamgiftsAcc::post(self.cookie.as_str(), self.xsrf.as_str(), ga)?;
             if response.status() != 200 {
                 return Err(SgbError::StatusCode(response.status()));
             }
-            let json = response.into_json()?;
+            let json : SerdeValue = response.into_json()?;
             let msg_type = json
                 .get("type")
                 .ok_or(SgbError::Json("couldn't find 'type' field"))?
@@ -99,7 +102,7 @@ pub mod steamgifts_acc {
             points.extract_number()
         }
         pub fn get_points(&self) -> Result<u32, SgbError> {
-            let html = SteamgiftsAcc::get(self.cookie.as_str(), URL::new(URLType::Main))
+            let html = SteamgiftsAcc::get(self.cookie.as_str(), URL::new(URLType::Main))?
                 .into_string()
                 .unwrap();
             let doc = scraper::html::Html::parse_document(html.as_str());
@@ -113,7 +116,7 @@ pub mod steamgifts_acc {
         }
         pub fn parse_vector(&self) -> Result<Vec<Entry>, SgbError> {
             let html =
-                SteamgiftsAcc::get(self.cookie.as_str(), URL::new(URLType::Main)).into_string()?;
+                SteamgiftsAcc::get(self.cookie.as_str(), URL::new(URLType::Main))?.into_string()?;
             let doc: Html = Html::parse_document(html.as_str());
             let giveaway_selector = Selector::parse(
                 "div.giveaway__row-outer-wrap[data-game-id] div[class=giveaway__row-inner-wrap]",
@@ -192,7 +195,7 @@ pub mod steamgifts_acc {
             }
         }
         fn get_xsrf(cookie: &str) -> Result<String, SgbError> {
-            let doc = SteamgiftsAcc::get(cookie, URL::new(URLType::Main)).into_string()?;
+            let doc = SteamgiftsAcc::get(cookie, URL::new(URLType::Main))?.into_string()?;
             let doc: scraper::html::Html = scraper::html::Html::parse_document(doc.as_str());
             let selector = Selector::parse("input[name=\"xsrf_token\"]").unwrap();
             let error_msg = || SgbError::Login("xsrf_token");
@@ -207,10 +210,10 @@ pub mod steamgifts_acc {
             Ok(out)
         }
         // TODO save state of ureq::Request, too many construct for a simple get
-        fn get(cookie: &str, url: URL) -> ureq::Response {
+        fn get(cookie: &str, url: URL) -> Result<ureq::Response, SgbError> {
             let url = url.to_string();
             let resp = ureq::get(url.as_str())
-                .timeout_connect(30_000)
+                // .timeout_connect(30_000)
                 .set(
                     "Accept",
                     "text/html, application/xhtml+xml, application/xml",
@@ -226,10 +229,10 @@ pub mod steamgifts_acc {
                 .set("Referer", "https://www.steamgifts.com")
                 .set("TE", "Trailers")
                 .set("Upgrade-Insecure-Requests", "1")
-                .call();
-            resp
+                .call()?;
+            Ok(resp)
         }
-        fn post(cookie: &str, xsrf: &str, entry: &Entry) -> ureq::Response {
+        fn post(cookie: &str, xsrf: &str, entry: &Entry) -> Result<ureq::Response, SgbError> {
             let cookie = format!("PHPSESSID={}", cookie);
             let referer = entry.get_href().to_string();
             let post_data = format!(
@@ -256,9 +259,9 @@ pub mod steamgifts_acc {
                 .set("Connection", "close")
                 .set("Cookie", cookie.as_str())
                 .set("TE", "Trailers")
-                .timeout_connect(30_000)
-                .send_string(post_data.as_str());
-            resp
+                // .timeout_connect(30_000)
+                .send_string(post_data.as_str())?;
+            Ok(resp)
         }
     }
     // * End Private decls

@@ -58,7 +58,9 @@ impl Opt {
         let cookie_arg = self.cookie.as_ref();
 
         if let Some(cookie) = cookie_arg {
-            fs::write(cookie_file, cookie)?;
+            if let Err(e) = fs::write(cookie_file, cookie){
+                eprintln!("WARNING: cannot write file; {}", e);
+            }
             return Ok(cookie.to_string());
         }
 
@@ -67,7 +69,7 @@ impl Opt {
             let first_line = file_content
                 .lines()
                 .nth(0)
-                .context(format!("failed to read from '{}'", cookie_file.display()))?
+                .with_context(|| format!("failed to read from '{}'", cookie_file.display()))?
                 .to_string();
             println!(
                 "read {} bytes from file '{}'",

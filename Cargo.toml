@@ -1,20 +1,22 @@
 [package]
 name = "steamgiftsbot"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["Daniel <knightpp@pm.me>"]
 edition = "2018"
-
+description = "Automatically enter giveaways for steamgifts.com"
+license = "MIT|Apache-2.0"
+readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ureq = { version = "1.5", features = ["json"] }
-scraper = "0.12"
-console = "0.13"
-pbr = "1.0"
-argh = "0.1"
-anyhow = "1.0"    # for binary
-thiserror = "1.0" # for lib
-oorandom = "11.1"     
+ureq = { version = "2.0.1", features = ["json"] }
+scraper = "0.12.0"
+console = "0.14.0"
+pbr = "1.0.4"
+argh = "0.1.4"
+anyhow = "1.0.38"
+thiserror = "1.0.23"
+oorandom = "11.1.3"
 
 [profile.release]
 lto = "thin"
