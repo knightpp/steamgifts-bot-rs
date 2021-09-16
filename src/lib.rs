@@ -11,7 +11,7 @@ pub enum SgbError {
     #[error("io error")]
     Io(#[from] std::io::Error),
     #[error("check your internet connection: {0}")]
-    Internet(#[from]ureq::Error),
+    Internet(#[from] Box<ureq::Error>),
     #[error("failed logging in: {0}")]
     Login(&'static str),
     #[error("failed entering GA: {0}")]
@@ -20,6 +20,14 @@ pub enum SgbError {
     Unknown,
     #[error("could not parse integer from string")]
     ParseError(#[from] ParseIntError),
+    #[error("parse duration error: {0}")]
+    Other(#[from] humantime::DurationError),
+}
+
+impl From<ureq::Error> for SgbError {
+    fn from(err: ureq::Error) -> Self {
+        SgbError::Internet(Box::new(err))
+    }
 }
 
 pub mod steamgifts_acc {
@@ -28,8 +36,9 @@ pub mod steamgifts_acc {
     use entry::Entry;
     use scraper::html::Html;
     use scraper::Selector;
-    use ureq::SerdeValue;
     use std::borrow::Cow;
+    use std::time::Duration;
+    use ureq::SerdeValue;
 
     #[derive(Debug)]
     pub struct URL<'c> {
@@ -51,8 +60,11 @@ pub mod steamgifts_acc {
         pub fn as_str(&self) -> &str {
             self.url_string.as_ref()
         }
-        pub fn to_string(&self) -> String {
-            self.url_string.to_string()
+    }
+
+    impl<'c> std::fmt::Display for URL<'c> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.url_string.as_ref())
         }
     }
 
@@ -83,7 +95,7 @@ pub mod steamgifts_acc {
             if response.status() != 200 {
                 return Err(SgbError::StatusCode(response.status()));
             }
-            let json : SerdeValue = response.into_json()?;
+            let json: SerdeValue = response.into_json()?;
             let msg_type = json
                 .get("type")
                 .ok_or(SgbError::Json("couldn't find 'type' field"))?
@@ -109,7 +121,7 @@ pub mod steamgifts_acc {
             let points_balance_selector = Selector::parse("span.nav__points").unwrap();
             let points = doc
                 .select(&points_balance_selector)
-                .nth(0)
+                .next()
                 .expect("Cannot parse balance")
                 .inner_html();
             points.as_str().extract_number()
@@ -124,13 +136,14 @@ pub mod steamgifts_acc {
             .unwrap();
             let mut giveaways = Vec::with_capacity(50);
             for el in doc.select(&giveaway_selector) {
-                let name = SteamgiftsAcc::select_name(&el);
-                let points = SteamgiftsAcc::select_points(&el)?;
-                let copies = SteamgiftsAcc::select_copies(&el)?;
-                let entries = SteamgiftsAcc::select_entries(&el)?;
-                let href = SteamgiftsAcc::select_href(&el);
-                let entry =
-                    Entry::new(name, URL::new(URLType::Href(href)), points, copies, entries);
+                let entry = Entry {
+                    name: SteamgiftsAcc::select_name(&el),
+                    price: SteamgiftsAcc::select_points(&el)?,
+                    copies: SteamgiftsAcc::select_copies(&el)?,
+                    entries: SteamgiftsAcc::select_entries(&el)?,
+                    href: URL::new(URLType::Href(SteamgiftsAcc::select_href(&el))),
+                    ends_in: SteamgiftsAcc::select_time(&el)?,
+                };
                 giveaways.push(entry);
             }
 
@@ -142,24 +155,23 @@ pub mod steamgifts_acc {
     impl SteamgiftsAcc {
         fn select_name(el: &scraper::ElementRef) -> String {
             let name_selector = Selector::parse("a.giveaway__heading__name").unwrap();
-            el.select(&name_selector).nth(0).unwrap().inner_html()
+            el.select(&name_selector).next().unwrap().inner_html()
         }
         fn select_entries(el: &scraper::ElementRef) -> Result<u32, SgbError> {
             let entries_selector = Selector::parse("div.giveaway__links a[href] span").unwrap();
-            Ok(el
-                .select(&entries_selector)
-                .nth(0)
+            el.select(&entries_selector)
+                .next()
                 .unwrap()
                 .inner_html()
                 .as_str()
-                .extract_number()?)
+                .extract_number()
         }
         fn select_href(el: &scraper::ElementRef) -> String {
             let href_selector =
                 Selector::parse("h2.giveaway__heading a.giveaway__heading__name[href]").unwrap();
             let href = el
                 .select(&href_selector)
-                .nth(0)
+                .next()
                 .expect("href not found!")
                 .value()
                 .attr("href")
@@ -194,6 +206,15 @@ pub mod steamgifts_acc {
                 Ok(1)
             }
         }
+        fn select_time(el: &scraper::ElementRef) -> Result<Duration, SgbError> {
+            let time_selector = Selector::parse(".giveaway__columns span[data-timestamp]").unwrap();
+            Ok(el
+                .select(&time_selector)
+                .next()
+                .map(|a| a.text().collect::<String>())
+                .map(|x| humantime::parse_duration(&x))
+                .ok_or(SgbError::Unknown)??)
+        }
         fn get_xsrf(cookie: &str) -> Result<String, SgbError> {
             let doc = SteamgiftsAcc::get(cookie, URL::new(URLType::Main))?.into_string()?;
             let doc: scraper::html::Html = scraper::html::Html::parse_document(doc.as_str());
@@ -201,7 +222,7 @@ pub mod steamgifts_acc {
             let error_msg = || SgbError::Login("xsrf_token");
             let out = doc
                 .select(&selector)
-                .nth(0)
+                .next()
                 .ok_or_else(error_msg)?
                 .value()
                 .attr("value")
@@ -234,7 +255,7 @@ pub mod steamgifts_acc {
         }
         fn post(cookie: &str, xsrf: &str, entry: &Entry) -> Result<ureq::Response, SgbError> {
             let cookie = format!("PHPSESSID={}", cookie);
-            let referer = entry.get_href().to_string();
+            let referer = entry.href.to_string();
             let post_data = format!(
                 "xsrf_token={}&do=entry_insert&code={}",
                 xsrf,

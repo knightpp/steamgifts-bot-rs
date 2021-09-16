@@ -1,0 +1,7 @@
+Package: steamgiftsbot
+Architecture: all
+Maintainer: @knightpp
+Priority: optional
+Version: 0.3.1
+Description: bot for steamgifts.com
+Depends: libc6
