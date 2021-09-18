@@ -11,7 +11,6 @@ use std::{
     time::{Duration, SystemTime},
 };
 use steamgiftsbot::steamgifts_acc;
-
 #[derive(FromArgs)]
 /** http://steamgifts.com bot written in Rust!
 When no arguments supplied then a cookie will be read from `cookie.txt` */
@@ -92,19 +91,17 @@ fn main() -> Result<()> {
 
 impl Opt {
     pub fn get_cookie(&self) -> Result<String> {
+        let cookie_arg = self.cookie.as_ref();
+        if let Some(cookie) = cookie_arg {
+            return Ok(cookie.to_string());
+        } else if let Ok(cookie) = std::env::var("SGB_COOKIE") {
+            return Ok(cookie);
+        }
+
         let cookie_file = self
             .cookie_file
             .as_deref()
             .unwrap_or_else(|| Path::new("cookie.txt"));
-        let cookie_arg = self.cookie.as_ref();
-
-        if let Some(cookie) = cookie_arg {
-            if let Err(e) = fs::write(cookie_file, cookie) {
-                eprintln!("WARNING: cannot write file; {}", e);
-            }
-            return Ok(cookie.to_string());
-        }
-
         if cookie_file.exists() {
             let file_content = fs::read_to_string(cookie_file)?;
             let first_line = file_content

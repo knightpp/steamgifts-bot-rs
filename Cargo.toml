@@ -9,6 +9,13 @@ readme = "README.md"
 #resolver = "2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "steamgiftsbot"
+path = "src/main.rs"
+
 [dependencies]
 ureq = { version = "2.2", features = ["json"] }
 scraper = "0.12"
