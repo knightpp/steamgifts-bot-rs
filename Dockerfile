@@ -10,4 +10,4 @@ RUN cargo install --path . --root /app
 FROM debian:latest
 COPY --from=build /app/bin/steamgiftsbot .
 
-CMD ["steamgiftsbot", "-d", "-t", "1h"]
+CMD ["/steamgiftsbot", "-d", "-t", "1h"]

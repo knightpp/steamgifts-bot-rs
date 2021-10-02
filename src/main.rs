@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use argh::FromArgs;
 use console::style;
 use std::{
@@ -11,6 +11,17 @@ use std::{
     time::{Duration, SystemTime},
 };
 use steamgiftsbot::steamgifts_acc;
+
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    #[error("cookie file not found: searched '{0}'")]
+    CookieFileNotFound(String),
+    #[error("couldn't read from file: '{0}'")]
+    CouldReadFrom(String),
+    #[error("io error")]
+    IoError(#[from] std::io::Error),
+}
+
 #[derive(FromArgs)]
 /** http://steamgifts.com bot written in Rust!
 When no arguments supplied then a cookie will be read from `cookie.txt` */
@@ -71,6 +82,7 @@ impl fmt::Display for SortStrategy {
 
 fn main() -> Result<()> {
     let matches: Opt = argh::from_env();
+    let cookie = matches.get_cookie()?;
     if matches.daemon {
         let epoch = SystemTime::UNIX_EPOCH;
         let some_seed = (SystemTime::now().duration_since(epoch)).unwrap().as_secs();
@@ -78,22 +90,22 @@ fn main() -> Result<()> {
         loop {
             let secs = rng.rand_range(5..15) as u64;
             let sl = || sleep(Duration::from_secs(secs));
-            if let Err(x) = run(&matches, sl) {
+            if let Err(x) = run(&matches, sl, cookie.clone()) {
                 eprintln!("Error: {}", style(x).red());
             }
             sleep(Duration::from_secs(60 * 60));
         }
     } else {
-        run(&matches, || pretty_sleep(Duration::from_secs(5)))?;
+        run(&matches, || pretty_sleep(Duration::from_secs(5)), cookie)?;
     }
     Ok(())
 }
 
 impl Opt {
-    pub fn get_cookie(&self) -> Result<String> {
+    pub fn get_cookie(&self) -> Result<String, Error> {
         let cookie_arg = self.cookie.as_ref();
         if let Some(cookie) = cookie_arg {
-            return Ok(cookie.to_string());
+            return Ok(cookie.clone());
         } else if let Ok(cookie) = std::env::var("SGB_COOKIE") {
             return Ok(cookie);
         }
@@ -107,7 +119,7 @@ impl Opt {
             let first_line = file_content
                 .lines()
                 .next()
-                .with_context(|| format!("failed to read from '{}'", cookie_file.display()))?
+                .ok_or_else(|| Error::CouldReadFrom(cookie_file.display().to_string()))?
                 .to_string();
             println!(
                 "read {} bytes from file '{}'",
@@ -116,17 +128,12 @@ impl Opt {
             );
             Ok(first_line)
         } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("file '{}' not found", cookie_file.display()),
-            ))
-            .context("cookie file not found")
+            Err(Error::CookieFileNotFound(cookie_file.display().to_string()))
         }
     }
 }
 
-fn run<F: Fn()>(matches: &Opt, sleep: F) -> Result<()> {
-    let cookie = matches.get_cookie()?;
+fn run<F: Fn()>(matches: &Opt, sleep: F, cookie: String) -> Result<()> {
     let acc = steamgifts_acc::new(cookie)?;
     let mut giveaways = acc.parse_vector()?;
 
