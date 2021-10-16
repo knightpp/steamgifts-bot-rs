@@ -5,7 +5,11 @@ edition = "2018"
 license = "MIT|Apache-2.0"
 name = "steamgiftsbot"
 readme = "README.md"
-version = "0.5.0"
+version = "0.5.1"
+resolver = "2"
+
+[lib]
+path = "src/lib.rs"
 [[bin]]
 name = "steamgiftsbot"
 path = "src/main.rs"
@@ -21,17 +25,8 @@ serde = { version = "1.0", features = ["derive"] }
 async-std = { version = "1.10", features = ["attributes"] }
 simplelog = "0.10"
 log = "0.4"
+surf = "2.3"
 
-[dependencies.ureq]
-features = ["json"]
-version = "2.2"
-
-[lib]
-path = "src/lib.rs"
-
-[profile]
 [profile.release]
 codegen-units = 1
 lto = true
-
-#opt-level = 3

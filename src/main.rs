@@ -34,7 +34,13 @@ impl SortStrategy {
 
 #[async_std::main]
 async fn main() -> tide::Result<()> {
-    simplelog::SimpleLogger::init(LevelFilter::Info, Default::default()).unwrap();
+    simplelog::SimpleLogger::init(
+        LevelFilter::Info,
+        simplelog::ConfigBuilder::new()
+            .add_filter_ignore_str("surf")
+            .build(),
+    )
+    .unwrap();
     let mut app = tide::new();
     app.at("/run").post(run_message);
     let port = std::env::var("PORT").expect("PORT env var not found");
@@ -61,8 +67,8 @@ async fn run_message(mut req: Request<()>) -> tide::Result {
 
 async fn run(msg: &Message) -> Result<(), anyhow::Error> {
     log::info!("RUN with msg: {:?}", msg);
-    let acc = steamgifts_acc::new(msg.cookie.clone())?;
-    let mut giveaways = acc.parse_vector()?;
+    let acc = steamgifts_acc::new(msg.cookie.clone()).await?;
+    let mut giveaways = acc.parse_vector().await?;
 
     if giveaways.is_empty() {
         return Err(anyhow::anyhow!("zero giveaways was parsed"));
@@ -95,12 +101,16 @@ async fn run(msg: &Message) -> Result<(), anyhow::Error> {
             r
         }
     });
-    let mut funds = acc.get_points()?;
-    log::info!("Points available: {}", style(funds).bold().yellow());
+    let mut funds = acc.get_points().await?;
+    log::info!(
+        "Points available: {}, Found giveaways: {}",
+        style(funds).bold().yellow(),
+        giveaways.len()
+    );
     for ga in giveaways.iter() {
         if funds > ga.price {
             log::info!("{}", ga);
-            funds = if let Ok(x) = acc.enter_giveaway(ga) {
+            funds = if let Ok(x) = acc.enter_giveaway(ga).await {
                 x
             } else {
                 continue;

@@ -1,5 +1,4 @@
 use std::num::ParseIntError;
-
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -10,8 +9,8 @@ pub enum SgbError {
     Json(&'static str),
     #[error("io error")]
     Io(#[from] std::io::Error),
-    #[error("check your internet connection: {0}")]
-    Internet(#[from] Box<ureq::Error>),
+    #[error("surf error: {0}")]
+    Surf(String),
     #[error("failed logging in: {0}")]
     Login(&'static str),
     #[error("failed entering GA: {0}")]
@@ -24,9 +23,9 @@ pub enum SgbError {
     Other(#[from] humantime::DurationError),
 }
 
-impl From<ureq::Error> for SgbError {
-    fn from(err: ureq::Error) -> Self {
-        SgbError::Internet(Box::new(err))
+impl From<surf::Error> for SgbError {
+    fn from(err: surf::Error) -> Self {
+        SgbError::Surf(err.to_string())
     }
 }
 
@@ -38,7 +37,6 @@ pub mod steamgifts_acc {
     use scraper::Selector;
     use std::borrow::Cow;
     use std::time::Duration;
-    use ureq::SerdeValue;
 
     #[derive(Debug)]
     pub struct URL<'c> {
@@ -74,8 +72,8 @@ pub mod steamgifts_acc {
         Href(String),
         Post,
     }
-    pub fn new(cookie: String) -> Result<SteamgiftsAcc, SgbError> {
-        let xsrf = SteamgiftsAcc::get_xsrf(cookie.as_str())?;
+    pub async fn new(cookie: String) -> Result<SteamgiftsAcc, SgbError> {
+        let xsrf = SteamgiftsAcc::get_xsrf(cookie.as_str()).await?;
         let acc = SteamgiftsAcc { cookie, xsrf };
         Ok(acc)
     }
@@ -89,34 +87,39 @@ pub mod steamgifts_acc {
         /// * JSON response don't contains 'error' nor 'success' field
         /// * Failed to parse HTML
         /// * Tried parse number from string with no digits
-        pub fn enter_giveaway(&self, ga: &Entry) -> Result<u32, SgbError> {
+        pub async fn enter_giveaway(&self, ga: &Entry<'_>) -> Result<u32, SgbError> {
             // TODO: refactor
-            let response = SteamgiftsAcc::post(self.cookie.as_str(), self.xsrf.as_str(), ga)?;
+            let mut response =
+                SteamgiftsAcc::post(self.cookie.as_str(), self.xsrf.as_str(), ga).await?;
             if response.status() != 200 {
-                return Err(SgbError::StatusCode(response.status()));
+                return Err(SgbError::StatusCode(response.status() as u16));
             }
-            let json: SerdeValue = response.into_json()?;
-            let msg_type = json
-                .get("type")
-                .ok_or(SgbError::Json("couldn't find 'type' field"))?
-                .as_str()
-                .unwrap();
-            match msg_type {
-                "success" => {}
-                "error" => return Err(SgbError::Json("failed to enter GA")),
-                msg => return Err(SgbError::Enter(format!("got msg = {}", msg))),
+            #[derive(Debug, serde::Deserialize)]
+            #[serde(untagged)]
+            enum Result {
+                Success { entry_count: u32 },
+                Failure { msg: String },
+            }
+            #[derive(Debug, serde::Deserialize)]
+            struct EnterResp {
+                #[serde(rename = "type")]
+                result: String,
+                points: u32,
+                error: Result,
+            }
+            let json: EnterResp = response.body_json().await?;
+
+            match json.error {
+                Result::Success { .. } => {}
+                Result::Failure { .. } => return Err(SgbError::Json("failed to enter GA")),
             };
-            let points = json
-                .get("points")
-                .ok_or(SgbError::Json("couldn't find 'points' field"))?
-                .as_str()
-                .unwrap();
-            points.extract_number()
+            Ok(json.points)
         }
-        pub fn get_points(&self) -> Result<u32, SgbError> {
-            let html = SteamgiftsAcc::get(self.cookie.as_str(), URL::new(URLType::Main))?
-                .into_string()
-                .unwrap();
+        pub async fn get_points(&self) -> Result<u32, SgbError> {
+            let html = SteamgiftsAcc::get(self.cookie.as_str(), URL::new(URLType::Main))
+                .await?
+                .body_string()
+                .await?;
             let doc = scraper::html::Html::parse_document(html.as_str());
             let points_balance_selector = Selector::parse("span.nav__points").unwrap();
             let points = doc
@@ -126,9 +129,11 @@ pub mod steamgifts_acc {
                 .inner_html();
             points.as_str().extract_number()
         }
-        pub fn parse_vector(&self) -> Result<Vec<Entry>, SgbError> {
-            let html =
-                SteamgiftsAcc::get(self.cookie.as_str(), URL::new(URLType::Main))?.into_string()?;
+        pub async fn parse_vector(&self) -> Result<Vec<Entry<'_>>, SgbError> {
+            let html = SteamgiftsAcc::get(self.cookie.as_str(), URL::new(URLType::Main))
+                .await?
+                .body_string()
+                .await?;
             let doc: Html = Html::parse_document(html.as_str());
             let giveaway_selector = Selector::parse(
                 "div.giveaway__row-outer-wrap[data-game-id] div[class=giveaway__row-inner-wrap]",
@@ -215,8 +220,11 @@ pub mod steamgifts_acc {
                 .map(|x| humantime::parse_duration(&x))
                 .ok_or(SgbError::Unknown)??)
         }
-        fn get_xsrf(cookie: &str) -> Result<String, SgbError> {
-            let doc = SteamgiftsAcc::get(cookie, URL::new(URLType::Main))?.into_string()?;
+        async fn get_xsrf(cookie: &str) -> Result<String, SgbError> {
+            let doc = SteamgiftsAcc::get(cookie, URL::new(URLType::Main))
+                .await?
+                .body_string()
+                .await?;
             let doc: scraper::html::Html = scraper::html::Html::parse_document(doc.as_str());
             let selector = Selector::parse("input[name=\"xsrf_token\"]").unwrap();
             let error_msg = || SgbError::Login("xsrf_token");
@@ -231,29 +239,30 @@ pub mod steamgifts_acc {
             Ok(out)
         }
         // TODO save state of ureq::Request, too many construct for a simple get
-        fn get(cookie: &str, url: URL) -> Result<ureq::Response, SgbError> {
+        async fn get(cookie: &str, url: URL<'_>) -> Result<surf::Response, SgbError> {
             let url = url.to_string();
-            let resp = ureq::get(url.as_str())
-                // .timeout_connect(30_000)
-                .set(
+            let resp = surf::get(url.as_str())
+                .header(
                     "Accept",
                     "text/html, application/xhtml+xml, application/xml",
                 )
-                //.set("Connection", "close")
-                .set("Cookie", format!("PHPSESSID={}", cookie).as_str())
-                // .set("DNT", "1")
-                .set(
+                .header("Cookie", format!("PHPSESSID={}", cookie).as_str())
+                .header(
                     "User-Agent",
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0",
                 )
-                .set("Host", "www.steamgifts.com")
-                .set("Referer", "https://www.steamgifts.com")
-                .set("TE", "Trailers")
-                .set("Upgrade-Insecure-Requests", "1")
-                .call()?;
+                .header("Host", "www.steamgifts.com")
+                .header("Referer", "https://www.steamgifts.com")
+                .header("TE", "Trailers")
+                .header("Upgrade-Insecure-Requests", "1")
+                .send().await?;
             Ok(resp)
         }
-        fn post(cookie: &str, xsrf: &str, entry: &Entry) -> Result<ureq::Response, SgbError> {
+        async fn post(
+            cookie: &'_ str,
+            xsrf: &'_ str,
+            entry: &'_ Entry<'_>,
+        ) -> Result<surf::Response, SgbError> {
             let cookie = format!("PHPSESSID={}", cookie);
             let referer = entry.href.to_string();
             let post_data = format!(
@@ -261,27 +270,26 @@ pub mod steamgifts_acc {
                 xsrf,
                 entry.get_code()
             );
-            let resp = ureq::post(URL::new(URLType::Post).as_str())
-                .set("Host", "www.steamgifts.com")
-                .set(
+            let resp = surf::post(URL::new(URLType::Post).as_str())
+                .header("Host", "www.steamgifts.com")
+                .header(
                     "User-Agent",
                     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/68.0.3440.84 Safari/537.36",
                 )
-                .set("Accept", "application/json, text/javascript, */*; q=0.01")
-                .set("Referer", referer.as_str())
-                .set(
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                .header("Referer", referer.as_str())
+                .header(
                     "Content-Type",
                     "application/x-www-form-urlencoded",
                 )
-                .set("X-Requested-With", "XMLHttpRequest")
+                .header("X-Requested-With", "XMLHttpRequest")
                // .set("Origin", "https://www.steamgifts.com")
-                //.set("Content-Length", "70")
-                .set("DNT", "1")
-                .set("Connection", "close")
-                .set("Cookie", cookie.as_str())
-                .set("TE", "Trailers")
-                // .timeout_connect(30_000)
-                .send_string(post_data.as_str())?;
+                .header("DNT", "1")
+                .header("Connection", "close")
+                .header("Cookie", cookie.as_str())
+                .header("TE", "Trailers")
+                .body_string(post_data)
+                .send().await?;
             Ok(resp)
         }
     }

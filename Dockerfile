@@ -1,13 +1,10 @@
-FROM rust:latest as build
+FROM docker.io/rust:latest
 WORKDIR /app
 ADD Cargo.toml .
 ADD Cargo.lock .
 RUN cargo fetch
 ADD src src
-# COPY . .
+
 RUN cargo install --path . --root /app
 
-FROM debian:latest
-COPY --from=build /app/bin/steamgiftsbot .
-
-CMD ["/steamgiftsbot"]
+CMD ["/app/bin/steamgiftsbot"]
