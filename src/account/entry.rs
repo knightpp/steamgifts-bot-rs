@@ -1,4 +1,4 @@
-use crate::steamgifts_acc::URL;
+use crate::account::URL;
 use std::{fmt::Display, time::Duration};
 
 #[derive(Debug)]

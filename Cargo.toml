@@ -1,18 +1,21 @@
 [package]
 authors = ["Daniel <knightpp@pm.me>"]
 description = "Automatically enter giveaways for steamgifts.com"
-edition = "2018"
+edition = "2021"
 license = "MIT|Apache-2.0"
 name = "steamgiftsbot"
 readme = "README.md"
-version = "0.5.2"
-resolver = "2"
+version = "0.6.0"
 
 [lib]
 path = "src/lib.rs"
 [[bin]]
 name = "steamgiftsbot"
 path = "src/main.rs"
+
+[features]
+default = []
+profile = ["pprof"]
 
 [dependencies]
 anyhow = "1.0"
@@ -30,6 +33,8 @@ log = "0.4"
 surf = { version = "2.3", default-features = false, features = [
 	"h1-client-rustls",
 ] }
+
+pprof = { version = "0.6", features = ["protobuf"], optional = true }
 
 [profile.dev]
 debug = false
