@@ -95,13 +95,13 @@ impl Account {
         struct ApiResponse {
             #[serde(rename = "type")]
             result: String,
-            points: u32,
+            points: String,
             error: Status,
         }
 
         let resp: ApiResponse = response.body_json().await?;
         match resp.error {
-            Status::Success { .. } => Ok(resp.points),
+            Status::Success { .. } => Ok(resp.points.parse()?),
             Status::Failure { .. } => Err(Error::Json("failed to enter GA")),
         }
     }
