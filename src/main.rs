@@ -118,15 +118,24 @@ async fn run(msg: &Message) -> Result<(), anyhow::Error> {
         style(funds).bold().yellow(),
         giveaways.len()
     );
+
+    let mut prng = oorandom::Rand32::new(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time failed us")
+            .as_secs(),
+    );
     for ga in &giveaways {
         if funds >= ga.price {
             if let Ok(updated_funds) = acc.enter_giveaway(ga).await {
                 log::info!("{}", ga);
                 funds = updated_funds;
-                task::sleep(Duration::from_secs(5)).await;
+
+                task::sleep(Duration::from_secs(prng.rand_range(5..15) as u64)).await;
             }
         }
     }
+
     Ok(())
 }
 

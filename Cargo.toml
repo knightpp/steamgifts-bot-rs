@@ -6,39 +6,53 @@ license = "MIT|Apache-2.0"
 name = "steamgiftsbot"
 readme = "README.md"
 version = "0.6.0"
-
-[lib]
-path = "src/lib.rs"
 [[bin]]
 name = "steamgiftsbot"
 path = "src/main.rs"
-
-[features]
-default = []
-profile = ["pprof"]
 
 [dependencies]
 anyhow = "1.0"
 console = "0.15"
 humantime = "2.1"
+log = "0.4"
+oorandom = "11.1"
 scraper = "0.12"
+simplelog = "0.11"
 thiserror = "1.0"
 tide = "0.16"
-serde = { version = "1.0", default-features = false, features = ["derive"] }
-async-std = { version = "1.10", default-features = false, features = [
-	"attributes",
-] }
-simplelog = "0.10"
-log = "0.4"
-surf = { version = "2.3", default-features = false, features = [
-	"h1-client-rustls",
-] }
 
-pprof = { version = "0.6", features = ["protobuf"], optional = true }
+[dependencies.async-std]
+default-features = false
+features = ["attributes"]
+version = "1.10"
 
+[dependencies.pprof]
+features = ["protobuf"]
+optional = true
+version = "0.6"
+
+[dependencies.serde]
+default-features = false
+features = ["derive"]
+version = "1.0"
+
+[dependencies.surf]
+default-features = false
+features = ["h1-client-rustls"]
+version = "2.3"
+
+[features]
+default = []
+profile = ["pprof"]
+
+[lib]
+path = "src/lib.rs"
+
+[profile]
 [profile.dev]
 debug = false
+
 [profile.release]
-debug = false
 codegen-units = 1
+debug = false
 lto = true
