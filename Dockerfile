@@ -5,10 +5,10 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-alpine-linux-musl-gcc \
 RUN apk add --no-cache musl-dev protobuf-dev
 
 WORKDIR /app
-ADD Cargo.toml .
-ADD Cargo.lock .
+COPY Cargo.toml .
+COPY Cargo.lock .
 RUN cargo fetch
-ADD src src
+COPY src src
 
 RUN cargo install --path . --root /app --target x86_64-unknown-linux-musl
 
