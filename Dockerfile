@@ -1,9 +1,9 @@
 FROM rust:latest as build
 WORKDIR /app
-ADD Cargo.toml .
-ADD Cargo.lock .
+COPY Cargo.toml .
+COPY Cargo.lock .
 RUN cargo fetch
-ADD src src
+COPY src src
 # COPY . .
 RUN cargo install --path . --root /app
 
