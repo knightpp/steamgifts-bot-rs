@@ -1,33 +1,58 @@
 [package]
-name = "steamgiftsbot"
-version = "0.4.0"
 authors = ["Daniel <knightpp@pm.me>"]
-edition = "2018"
 description = "Automatically enter giveaways for steamgifts.com"
+edition = "2021"
 license = "MIT|Apache-2.0"
+name = "steamgiftsbot"
 readme = "README.md"
-#resolver = "2"
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[lib]
-path = "src/lib.rs"
-
+version = "0.7.0"
 [[bin]]
 name = "steamgiftsbot"
 path = "src/main.rs"
 
 [dependencies]
-ureq = { version = "2.2", features = ["json"] }
-scraper = "0.12"
-console = "0.14"
-pbr = "1.0"
-argh = "0.1"
 anyhow = "1.0"
-thiserror = "1.0"
-oorandom = "11.1"
+console = "0.15"
 humantime = "2.1"
+log = "0.4"
+oorandom = "11.1"
+scraper = "0.12"
+simplelog = "0.11"
+thiserror = "1.0"
+tide = "0.16"
+
+[dependencies.async-std]
+default-features = false
+features = ["attributes"]
+version = "1.10"
+
+[dependencies.pprof]
+features = ["protobuf"]
+optional = true
+version = "0.6"
+
+[dependencies.serde]
+default-features = false
+features = ["derive"]
+version = "1.0"
+
+[dependencies.surf]
+default-features = false
+features = ["h1-client-rustls"]
+version = "2.3"
+
+[features]
+default = []
+profile = ["pprof"]
+
+[lib]
+path = "src/lib.rs"
+
+[profile]
+[profile.dev]
+debug = false
 
 [profile.release]
-lto = true
 codegen-units = 1
-#opt-level = 3
+debug = false
+lto = true

@@ -1,216 +1,162 @@
-use anyhow::Result;
-use argh::FromArgs;
+use async_std::task;
 use console::style;
-use std::{
-    cmp::Ordering,
-    fmt::{self},
-    fs,
-    path::{Path, PathBuf},
-    str::FromStr,
-    thread::sleep,
-    time::{Duration, SystemTime},
-};
-use steamgiftsbot::steamgifts_acc;
+use serde::Deserialize;
+use simplelog::LevelFilter;
+use std::{cmp::Ordering, time::Duration};
+use steamgiftsbot::account::{self, Account};
+use tide::Request;
 
-#[derive(Debug, thiserror::Error)]
-enum Error {
-    #[error("cookie file not found: searched '{0}'")]
-    CookieFileNotFound(String),
-    #[error("couldn't read from file: '{0}'")]
-    CouldReadFrom(String),
-    #[error("io error")]
-    IoError(#[from] std::io::Error),
-}
-
-#[derive(FromArgs)]
-/** http://steamgifts.com bot written in Rust!
-When no arguments supplied then a cookie will be read from `cookie.txt` */
-struct Opt {
-    /// set a path to a cookie file
-    #[argh(option, short = 'f')]
-    cookie_file: Option<PathBuf>,
-
-    /// cookie value, string after 'PHPSESSID=', automatically saves to file
-    #[argh(option, short = 'c')]
-    cookie: Option<String>,
-
-    /// daemonize
-    #[argh(switch, short = 'd')]
-    daemon: bool,
-
-    /// filters giveaways that ends in X or earlier
-    #[argh(option, short = 't')]
-    filter_time: Option<humantime::Duration>,
-
-    /// sorting strategy allowed values are: [chance, price]
-    #[argh(option, default = "SortStrategy::Chance", short = 's')]
+#[derive(Debug, Deserialize)]
+struct Message {
+    cookie: String,
+    #[serde(default = "default_filter_time")]
+    filter_time: Option<String>,
+    #[serde(default = "SortStrategy::by_chance")]
     sort_by: SortStrategy,
-
-    /// reverse sorting
-    #[argh(switch)]
+    #[serde(default)]
     reverse: bool,
 }
 
-#[derive(Debug)]
+fn default_filter_time() -> Option<String> {
+    Some("1h".to_owned())
+}
+
+#[derive(Debug, Deserialize)]
 enum SortStrategy {
     Chance,
     Price,
 }
-impl FromStr for SortStrategy {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use SortStrategy::*;
-        let s = s.to_lowercase();
-        if s.starts_with('c') {
-            Ok(Chance)
-        } else if s.starts_with('p') {
-            Ok(Price)
-        } else {
-            Err("expected `chance` or `price`".to_owned())
-        }
-    }
-}
-impl fmt::Display for SortStrategy {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SortStrategy::Chance => f.write_str("chance"),
-            SortStrategy::Price => f.write_str("price"),
-        }
+impl SortStrategy {
+    fn by_chance() -> Self {
+        SortStrategy::Chance
     }
 }
 
-fn main() -> Result<()> {
-    let matches: Opt = argh::from_env();
-    let cookie = matches.get_cookie()?;
-    if matches.daemon {
-        let epoch = SystemTime::UNIX_EPOCH;
-        let some_seed = (SystemTime::now().duration_since(epoch)).unwrap().as_secs();
-        let mut rng = oorandom::Rand32::new(some_seed);
-        loop {
-            let secs = rng.rand_range(5..15) as u64;
-            let sl = || sleep(Duration::from_secs(secs));
-            if let Err(x) = run(&matches, sl, cookie.clone()) {
-                eprintln!("Error: {}", style(x).red());
-            }
-            sleep(Duration::from_secs(60 * 60));
+#[async_std::main]
+async fn main() -> tide::Result<()> {
+    simplelog::SimpleLogger::init(
+        LevelFilter::Info,
+        simplelog::ConfigBuilder::new()
+            .add_filter_ignore_str("surf")
+            .build(),
+    )
+    .unwrap();
+    let mut app = tide::new();
+    app.with(tide::utils::After(|res: tide::Response| async {
+        if let Some(e) = res.error() {
+            log::error!("{}", e);
         }
-    } else {
-        run(&matches, || pretty_sleep(Duration::from_secs(5)), cookie)?;
+        Ok(res)
+    }));
+
+    #[cfg(feature = "profile")]
+    {
+        let profiler_guard = Box::leak(Box::new(pprof::ProfilerGuard::new(10000).unwrap()));
+        app.at("/profile")
+            .get(|r| async { generate_report(r, profiler_guard).await });
     }
+
+    app.at("/run").post(run_message);
+    let port = std::env::var("PORT").expect("PORT env var not found");
+    let addr = format!("0.0.0.0:{}", port);
+    app.listen(addr).await?;
     Ok(())
 }
 
-impl Opt {
-    pub fn get_cookie(&self) -> Result<String, Error> {
-        let cookie_arg = self.cookie.as_ref();
-        if let Some(cookie) = cookie_arg {
-            return Ok(cookie.clone());
-        } else if let Ok(cookie) = std::env::var("SGB_COOKIE") {
-            return Ok(cookie);
+async fn run_message(mut req: Request<()>) -> tide::Result {
+    let m: Message = req.body_json().await?;
+    task::spawn(async move {
+        log::info!("{}: Run started", m.cookie);
+        if let Result::Err(e) = run(&m).await {
+            log::error!("Err: {:?}", e);
         }
-
-        let cookie_file = self
-            .cookie_file
-            .as_deref()
-            .unwrap_or_else(|| Path::new("cookie.txt"));
-        if cookie_file.exists() {
-            let file_content = fs::read_to_string(cookie_file)?;
-            let first_line = file_content
-                .lines()
-                .next()
-                .ok_or_else(|| Error::CouldReadFrom(cookie_file.display().to_string()))?
-                .to_string();
-            println!(
-                "read {} bytes from file '{}'",
-                first_line.len(),
-                cookie_file.display()
-            );
-            Ok(first_line)
-        } else {
-            Err(Error::CookieFileNotFound(cookie_file.display().to_string()))
-        }
-    }
+        log::info!("{}: Run finished", m.cookie);
+    });
+    Ok("".into())
 }
 
-fn run<F: Fn()>(matches: &Opt, sleep: F, cookie: String) -> Result<()> {
-    let acc = steamgifts_acc::new(cookie)?;
-    let mut giveaways = acc.parse_vector()?;
+async fn run(msg: &Message) -> Result<(), anyhow::Error> {
+    log::info!("RUN with msg: {:?}", msg);
+    let acc = Account::login(msg.cookie.clone()).await?;
+    let mut giveaways = acc.parse_giveaways().await?;
 
     if giveaways.is_empty() {
-        return Err(anyhow::Error::msg("none giveaways was parsed"));
+        return Err(anyhow::anyhow!("zero giveaways was parsed"));
     }
 
-    if let Some(dur) = matches.filter_time.as_ref() {
+    if let Some(dur) = msg.filter_time.as_ref() {
+        let dur = humantime::parse_duration(dur)?;
         giveaways = giveaways
             .into_iter()
-            .filter(|a| a.ends_in.cmp(dur).is_le())
+            .filter(|g| g.ends_in.cmp(&dur).is_le())
             .collect();
-        println!("Found {} giveaways that ends in < {}", giveaways.len(), dur)
-    } else {
-        println!("Found {} giveaways", giveaways.len())
     }
-    use steamgifts_acc::entry::Entry;
+    use account::entry::Entry;
     // expensive first
-    let sorter: fn(&Entry, &Entry) -> Ordering = match matches.sort_by {
-        SortStrategy::Chance => |a, b| {
-            (a.copies as f64 / a.entries as f64)
-                .partial_cmp(&(b.copies as f64 / b.entries as f64))
+    let sorter: fn(&Entry, &Entry) -> Ordering = match msg.sort_by {
+        SortStrategy::Chance => |lhs, rhs| {
+            (lhs.copies as f64 / lhs.entries as f64)
+                .partial_cmp(&(rhs.copies as f64 / rhs.entries as f64))
                 .unwrap_or(Ordering::Less)
                 .reverse()
         },
-        SortStrategy::Price => |a, b| a.price.cmp(&b.price).reverse(),
+        SortStrategy::Price => |lhs, rhs| lhs.price.cmp(&rhs.price).reverse(),
     };
 
-    giveaways.sort_by(|a, b| {
-        let r = sorter(a, b);
-        if matches.reverse {
+    giveaways.sort_by(|lhs, rhs| {
+        let r = sorter(lhs, rhs);
+        if msg.reverse {
             r.reverse()
         } else {
             r
         }
     });
-    let mut funds = acc.get_points()?;
-    println!("Points available: {}", style(funds).bold().yellow());
-    //std::thread::sleep(std::time::Duration::from_secs(5));
-    //pretty_sleep(std::time::Duration::from_millis(5000));
-    sleep();
-    for ga in giveaways.iter() {
-        if funds > ga.price {
-            println!("{}", ga);
-            funds = if let Ok(x) = acc.enter_giveaway(ga) {
-                x
-            } else {
-                continue;
-            };
-        } else {
-            continue;
+
+    let mut funds = acc.get_points().await?;
+    log::info!(
+        "Points available: {}, Found giveaways: {}",
+        style(funds).bold().yellow(),
+        giveaways.len()
+    );
+
+    let mut prng = oorandom::Rand32::new(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time failed us")
+            .as_secs(),
+    );
+
+    for ga in &giveaways {
+        if funds >= ga.price {
+            match acc.enter_giveaway(ga).await {
+                Ok(updated_funds) => {
+                    log::info!("{}", ga);
+                    funds = updated_funds;
+                }
+                Err(err) => log::error!("failed to enter giveaway {} : {}", ga.href, err),
+            }
+            task::sleep(Duration::from_secs(prng.rand_range(5..15) as u64)).await;
         }
-        //pretty_sleep(std::time::Duration::from_millis(5000));
-        //std::thread::sleep(std::time::Duration::from_secs(5));
-        sleep();
     }
+
     Ok(())
 }
 
-fn pretty_sleep(dur: Duration) {
-    use std::convert::TryInto;
-    const PB_WIDTH: usize = 70;
-    const REFRESH_EVERY_MS: u64 = 100;
-    let ms = dur.as_millis();
-    debug_assert_eq!(ms.try_into(), Ok(ms as u64));
-    let ms = ms as u64;
-    debug_assert!(ms > REFRESH_EVERY_MS);
-    let mut pb = pbr::ProgressBar::new(ms);
-    pb.show_speed = false;
-    pb.show_percent = false;
+#[cfg(feature = "profile")]
+async fn generate_report(_: Request<()>, guard: &'_ pprof::ProfilerGuard<'_>) -> tide::Result {
+    if let Ok(report) = guard.report().build() {
+        let profile = report.pprof().unwrap();
+        let mut content = Vec::new();
 
-    pb.set_width(Some(PB_WIDTH));
-    for _ in 0..(ms / REFRESH_EVERY_MS) {
-        //pb.inc();
-        pb.add(REFRESH_EVERY_MS);
-        sleep(Duration::from_millis(REFRESH_EVERY_MS));
+        use pprof::protos::Message;
+        profile.encode(&mut content).unwrap();
+
+        Ok(tide::Body::from_bytes(content).into())
+    } else {
+        Ok(
+            tide::Response::builder(tide::StatusCode::InternalServerError)
+                .body("Failed to generate report")
+                .build(),
+        )
     }
-    pb.finish_print(""); // clear by printing whitespaces
-    print!("\r"); // return to start of the line
 }

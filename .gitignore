@@ -2,3 +2,7 @@
 .idea/
 pkg/
 *.pkg.tar*
+*.txt
+Dockerfile.profiler
+*.pb
+.vscode
