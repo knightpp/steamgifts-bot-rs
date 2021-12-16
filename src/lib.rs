@@ -22,7 +22,7 @@ pub enum Error {
     #[error("could not parse integer from string")]
     ParseError(#[from] ParseIntError),
     #[error("parse duration error: {0}")]
-    Other(#[from] humantime::DurationError),
+    HumanTimeError(#[from] humantime::DurationError),
 }
 
 impl From<surf::Error> for Error {

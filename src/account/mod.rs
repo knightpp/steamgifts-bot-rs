@@ -85,24 +85,24 @@ impl Account {
         if response.status() != 200 {
             return Err(Error::StatusCode(response.status() as u16));
         }
-        #[derive(Debug, serde::Deserialize)]
-        #[serde(untagged)]
-        enum Status {
-            Success { entry_count: u32 },
-            Failure { msg: String },
-        }
+
         #[derive(Debug, serde::Deserialize)]
         struct ApiResponse {
             #[serde(rename = "type")]
             result: String,
             points: String,
-            error: Status,
+            entry_count: Option<String>,
+            msg: Option<String>,
         }
 
         let resp: ApiResponse = response.body_json().await?;
-        match resp.error {
-            Status::Success { .. } => Ok(resp.points.parse()?),
-            Status::Failure { .. } => Err(Error::Json("failed to enter GA")),
+        match resp.result.as_str() {
+            "success" => Ok(resp.points.parse()?),
+            "error" => Err(Error::Json("failed to enter GA")),
+            unknown => Err(Error::Message(format!(
+                "unknown API response status: {}: {:?}",
+                unknown, resp.msg
+            ))),
         }
     }
 
