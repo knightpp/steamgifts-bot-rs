@@ -1,0 +1,13 @@
+version = 1
+
+[[analyzers]]
+name = "docker"
+enabled = true
+
+[[analyzers]]
+name = "rust"
+enabled = true
+
+[[transformers]]
+name = "rustfmt"
+enabled = true
