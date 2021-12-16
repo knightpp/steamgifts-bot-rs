@@ -9,8 +9,6 @@ COPY Cargo.toml .
 COPY Cargo.lock .
 RUN cargo fetch
 COPY src src
-# COPY . .
-RUN cargo install --path . --root /app
 
 RUN cargo install --path . --root /app --target x86_64-unknown-linux-musl
 
