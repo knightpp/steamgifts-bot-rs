@@ -5,7 +5,7 @@ edition = "2021"
 license = "MIT|Apache-2.0"
 name = "steamgiftsbot"
 readme = "README.md"
-version = "0.6.0"
+version = "0.7.0"
 [[bin]]
 name = "steamgiftsbot"
 path = "src/main.rs"
